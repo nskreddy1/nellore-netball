@@ -1,6 +1,7 @@
 import { BrowserRouter as Router, Routes, Route, Link, Navigate, useNavigate } from "react-router-dom";
 import { useState, useEffect } from "react";
 import * as XLSX from "xlsx";
+import { supabase } from "./supabaseClient";
 
 // --- SETTINGS (CHANGE YOUR USERNAME/PASSWORD HERE) ---
 const ADMIN_USER = "Hemanth";
@@ -135,7 +136,6 @@ function Dashboard() {
 
 function AddPlayer() {
   const navigate = useNavigate();
-  const [db, setDb] = useState(JSON.parse(localStorage.getItem("nellore_final_db")) || []);
   const [photo, setPhoto] = useState("");
   const [form, setForm] = useState({ name: "", fatherName: "", dob: "", category: "Sub-Junior", districtNo: "", stateNo: "", aadhar: "", institution: "", location: "", address: "", mobile: "", yearPlayed: "", venue: "", position: "" });
 
@@ -146,10 +146,37 @@ function AddPlayer() {
     if (file) reader.readAsDataURL(file);
   };
 
-  const save = (e) => {
+  const save = async (e) => {
     e.preventDefault();
-    const updated = [...db, { ...form, photo, id: Date.now() }];
-    localStorage.setItem("nellore_final_db", JSON.stringify(updated));
+
+    const { data, error } = await supabase
+      .from('players')
+      .insert([
+        {
+          name: form.name,
+          father_name: form.fatherName,
+          dob: form.dob,
+          category: form.category,
+          district_no: form.districtNo,
+          state_no: form.stateNo,
+          aadhar: form.aadhar,
+          institution: form.institution,
+          location: form.location,
+          address: form.address,
+          mobile: form.mobile,
+          year_played: form.yearPlayed,
+          venue: form.venue,
+          position: form.position,
+          photo: photo
+        }
+      ]);
+
+    if (error) {
+      console.error("Error saving player:", error);
+      alert("Failed to save player. See console for details.");
+      return;
+    }
+
     alert("Player Profile Saved Successfully!");
     navigate("/view-database");
   };
@@ -197,20 +224,86 @@ function AddPlayer() {
 }
 
 function ViewDatabase() {
-  const [db, setDb] = useState(JSON.parse(localStorage.getItem("nellore_final_db")) || []);
+  const [db, setDb] = useState([]);
   const [searchTerm, setSearchTerm] = useState("");
   const [editId, setEditId] = useState(null);
   const [editData, setEditData] = useState({});
 
-  const startEdit = (p) => { setEditId(p.id); setEditData({ ...p }); };
-  const cancelEdit = () => setEditId(null);
-  const saveEdit = () => {
-    const updated = db.map(p => p.id === editId ? editData : p);
-    setDb(updated);
-    localStorage.setItem("nellore_final_db", JSON.stringify(updated));
-    setEditId(null);
+  useEffect(() => {
+    fetchPlayers();
+  }, []);
+
+  const fetchPlayers = async () => {
+    const { data, error } = await supabase
+      .from('players')
+      .select('*')
+      .order('id', { ascending: false });
+
+    if (error) {
+      console.error("Error fetching players:", error);
+    } else {
+      setDb(data);
+    }
   };
-  const deletePlayer = (id) => { if (window.confirm("Delete record?")) { const updated = db.filter(p => p.id !== id); setDb(updated); localStorage.setItem("nellore_final_db", JSON.stringify(updated)); } };
+
+  const startEdit = (p) => {
+    setEditId(p.id);
+    // Map snake_case DB fields back to camelCase for the edit form state
+    setEditData({
+      ...p,
+      fatherName: p.father_name,
+      districtNo: p.district_no,
+      stateNo: p.state_no,
+      yearPlayed: p.year_played
+    });
+  };
+  const cancelEdit = () => setEditId(null);
+
+  const saveEdit = async () => {
+    const { error } = await supabase
+      .from('players')
+      .update({
+        name: editData.name,
+        father_name: editData.fatherName,
+        dob: editData.dob,
+        category: editData.category,
+        district_no: editData.districtNo,
+        state_no: editData.stateNo,
+        aadhar: editData.aadhar,
+        institution: editData.institution,
+        location: editData.location,
+        address: editData.address,
+        mobile: editData.mobile,
+        year_played: editData.yearPlayed,
+        venue: editData.venue,
+        position: editData.position
+      })
+      .eq('id', editId);
+
+    if (error) {
+      console.error("Error updating player:", error);
+      alert("Failed to update player.");
+    } else {
+      setEditId(null);
+      fetchPlayers(); // Refresh list to get updated data
+    }
+  };
+
+  const deletePlayer = async (id) => {
+    if (window.confirm("Delete record?")) {
+      const { error } = await supabase
+        .from('players')
+        .delete()
+        .eq('id', id);
+
+      if (error) {
+        console.error("Error deleting player:", error);
+        alert("Failed to delete player.");
+      } else {
+        fetchPlayers(); // Refresh list to get updated data
+      }
+    }
+  };
 
   const exportToExcel = () => {
     const fileData = db.map(({ photo, id, ...rest }) => rest);
@@ -221,9 +314,9 @@ function ViewDatabase() {
   };
 
   const filteredData = db.filter(p =>
-    p.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-    p.aadhar.includes(searchTerm) ||
-    p.mobile.includes(searchTerm)
+    (p.name?.toLowerCase().includes(searchTerm.toLowerCase())) ||
+    (p.aadhar?.includes(searchTerm)) ||
+    (p.mobile?.includes(searchTerm))
   );
 
   return (
@@ -297,9 +390,9 @@ function ViewDatabase() {
                     </>
                   ) : (
                     <>
-                      <td style={{ padding: "10px" }}><strong>{p.name.toUpperCase()}</strong><br />S/O: {p.fatherName}<br />DOB: {p.dob}</td>
-                      <td>Aadhar: <strong>{p.aadhar}</strong><br />Dist No: {p.districtNo}<br />State No: {p.stateNo}</td>
-                      <td>Cat: {p.category}<br />Year: {p.yearPlayed}<br />Pos: {p.position}<br />Venue: <strong>{p.venue}</strong></td>
+                      <td style={{ padding: "10px" }}><strong>{p.name?.toUpperCase()}</strong><br />S/O: {p.father_name}<br />DOB: {p.dob}</td>
+                      <td>Aadhar: <strong>{p.aadhar}</strong><br />Dist No: {p.district_no}<br />State No: {p.state_no}</td>
+                      <td>Cat: {p.category}<br />Year: {p.year_played}<br />Pos: {p.position}<br />Venue: <strong>{p.venue}</strong></td>
                       <td>Mob: {p.mobile}<br />{p.institution}<br />{p.location}, {p.address}</td>
                       <td className="no-print" style={{ textAlign: "center" }}>
                         <button onClick={() => startEdit(p)} style={{ color: theme.primary, fontWeight: "bold", border: "none", background: "none", cursor: "pointer", marginRight: "10px" }}>EDIT</button>
